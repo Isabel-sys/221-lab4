@@ -6,7 +6,9 @@ helpc : .asciz "-h"
 lettc : .asciz "letter"
 
 flags: .long 0 
-hdr : .asciz "Use keypad to move cursor (8,4,2,6).\n0 exits.\nAny other key will change cursor.\n"
+hdr : .asciz "Use keypad to move cursor (%s).\n0 exits.\nAny other key will change cursor.\n"
+ctr_n : .asciz "8,4,2,6"
+ctr_l : .asciz "i,j,k,m"
 
 dir_fmt : .asciz "Direction: %d"
 let_fmt : .asciz "Letter: %d"
@@ -153,8 +155,16 @@ teardown:
 # === header === 
 # @brief prints the header during runtime 
 # 
+# @param flags - %edi 
 # @return void 
 header: 
+  leaq ctr_n(%rip) , %rsi 
+  leaq ctr_l(%rip) , %rcx 
+
+  andl $LETT , %edi 
+  cmpl $LETT , %edi 
+  cmove %rcx , %rsi 
+
   leaq hdr(%rip) , %rdi 
   call printw 
   ret 
@@ -341,6 +351,7 @@ main:
 1: 
 
   call initialize
+  movl flags, %edi
   call header
 
   movl flags , %edi 
