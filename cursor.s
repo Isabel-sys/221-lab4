@@ -6,7 +6,11 @@ helpc : .asciz "-h"
 lettc : .asciz "letter"
 
 flags: .long 0 
-hdr : .asciz "Use keypad to move cursor (%s).\n0 exits.\nAny other key will change cursor.\n"
+hdr : .asciz "Use %s to move cursor (%s).\n0 exits.\nAny other key will change cursor.\n"
+
+pad_n : .asciz "keypad"
+pad_l : .asciz "keyboard"
+
 ctr_n : .asciz "8,4,2,6"
 ctr_l : .asciz "i,j,k,m"
 
@@ -40,6 +44,8 @@ JT_move:
 # @param char* str  - Potential verb          (RDI)
 # @param char* vrb  - verb to compare against (RSI)
 # @param int   mask - mask to apply to flags  (EDX)
+# 
+# @return mask or  0
 set_flag: 
   push %rbp 
   push %rbx 
@@ -65,6 +71,8 @@ set_flag:
 # @param int argc    - Argument Count  (EDI)
 # @param char** argv - Argument Vector (RSI)
 # @param int* flags   - Whether or not to add a tail (RDX)
+# 
+# @return int 
 process_args: 
   push %rbp 
   push %rbx 
@@ -84,6 +92,7 @@ process_args:
   xorq %rbp , %rbp 
 
 
+
 pa_loop: 
   cmpq %rbx , %rbp 
   je pa_end
@@ -94,7 +103,8 @@ pa_loop:
   call set_flag 
   orl  %eax , (%r13)
   test %eax , %eax 
-  jnz  pa_iter
+  jnz  pa_iter  
+  # flag /= 0 => next token 
 
 
   movq 8(%r12,%rbp,8) , %rdi 
@@ -110,6 +120,7 @@ pa_loop:
   call strcmp
   testq %rax , %rax 
   jz pa_help
+  # -h =>  print help + exit 
 
 pa_iter: 
   incq %rbp 
@@ -158,13 +169,17 @@ teardown:
 # @param flags - %edi 
 # @return void 
 header: 
-  leaq ctr_n(%rip) , %rsi 
-  leaq ctr_l(%rip) , %rcx 
-
   andl $LETT , %edi 
   cmpl $LETT , %edi 
-  cmove %rcx , %rsi 
-
+  jne 2f 
+1: 
+  leaq pad_l(%rip) , %rsi 
+  leaq ctr_l(%rip) , %rdx 
+  jmp 3f 
+2: 
+  leaq pad_n(%rip) , %rsi 
+  leaq ctr_l(%rip) , %rdx
+3:
   leaq hdr(%rip) , %rdi 
   call printw 
   ret 
@@ -179,6 +194,8 @@ header:
 # 
 # @return long 
 lookup_jmp: 
+  # if we can't find the key in our list we know that  
+  # we have to jump to the default case 
   movq $4 , %rax
   xorq %rcx , %rcx 
 1: 
@@ -189,10 +206,31 @@ lookup_jmp:
   incq %rcx 
   jmp 1b 
 2: 
+  # found case => rax = case 
   movq %rcx , %rax 
 3: 
   ret
 
+# === wraparound === 
+# @brief if x > b, x = a if x < a,  x = b 
+# 
+# @param int a - lower bound (EDI)
+# @param int b - upper bound (ESI)
+# @param int x - value to bound (EDX)
+# @return int 
+wraparound: 
+  cmpl %edi , %edx  
+  jge 1f 
+  movl %esi , %edx
+  decl %edx
+  jmp 2f
+1: 
+  cmpl %esi , %edx 
+  jl 2f 
+  movl %edi , %edx 
+2: 
+  movl %edx, %eax
+  ret 
 # === process === 
 # @brief  process keypresses 
 # @param  int tail (EDI)
@@ -220,6 +258,7 @@ process:
   movl $5 ,  -8(%rbp)
   movl $5 , -12(%rbp)
 
+  # (LETT & flags) == LETT => letter control scheme 
   movl $num_move, -32(%rbp) 
   andl $LETT , %edi 
   cmpl $LETT , %edi 
@@ -233,7 +272,7 @@ process:
   movl  -8(%rbp) , %esi 
   movl -12(%rbp) , %edx 
   call mvwinch 
-  movl %eax , -16(%rbp)
+  movl %eax , -16(%rbp) #  save the character that previously filled screen[row][col] 
 
 
   movb $'+' , -17(%rbp)
@@ -245,12 +284,14 @@ process:
 
 p_start: 
 
+  # print number of changes to direction 
   movl $3            , %edi 
   movl $0            , %esi 
   leaq dir_fmt(%rip) , %rdx 
   movl -24(%rbp)     , %ecx
   call mvprintw 
 
+  # print number of changes to cursor 
   movl $4            , %edi 
   movl $0            , %esi 
   leaq let_fmt(%rip) , %rdx 
@@ -263,6 +304,7 @@ p_start:
 
   movl %eax , -4(%rbp)
 
+  # (TAIL & flags) == TAIL => 'render' tail (do not draw over c in last position)
   movl %ebx  , %eax 
   andl $TAIL , %eax 
   cmpl $TAIL , %eax 
@@ -316,6 +358,23 @@ default:
   addl $1 , -28(%rbp)
 end: 
 
+  movq LINES@GOTPCREL(%rip) , %rax 
+  movl $0       , %edi 
+  movl (%rax)   , %esi 
+  movl -8(%rbp) , %edx 
+  call wraparound
+  movl %eax , -8(%rbp)
+
+  movq COLS@GOTPCREL(%rip) , %rax 
+  movl $0                  , %edi 
+  movl (%rax)              , %esi 
+  movl -12(%rbp)            , %edx
+  call wraparound
+  movl %eax , -12(%rbp)
+
+
+
+  # save the character at the current position before overwriting 
   movq stdscr@GOTPCREL(%rip) , %rax 
   movq (%rax)    , %rdi 
   movl -8(%rbp)  , %esi 
@@ -323,6 +382,7 @@ end:
   call mvwinch
   movl %eax , -16(%rbp)
 
+  # overwrite current position with c
   movl -8(%rbp)  , %edi 
   movl -12(%rbp) , %esi 
   movb -17(%rbp) , %dl 
