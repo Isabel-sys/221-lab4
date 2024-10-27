@@ -178,7 +178,7 @@ header:
   jmp 3f 
 2: 
   leaq pad_n(%rip) , %rsi 
-  leaq ctr_l(%rip) , %rdx
+  leaq ctr_n(%rip) , %rdx
 3:
   leaq hdr(%rip) , %rdi 
   call printw 
