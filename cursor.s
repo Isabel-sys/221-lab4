@@ -1,9 +1,9 @@
 .section .data 
-usg : .asciz "Usage: cursor [-h|(tail,letter)*]\n\ttail\tleave a tail\n\tletter\tswitch cntrl scheme to {i,j,k,m}\n\t-h\tthis message\n"
+usg : .asciz "Usage: cursor [-h|(tail,letters)*]\n\ttail\tleave a tail\n\tletters\tswitch cntrl scheme to {i,j,k,m}\n\t-h\tthis message\n"
 
 tailc : .asciz "tail"
 helpc : .asciz "-h"
-lettc : .asciz "letter"
+lettc : .asciz "letters"
 
 flags: .long 0 
 hdr : .asciz "Use %s to move cursor (%s).\n0 exits.\nAny other key will change cursor.\n"
@@ -104,7 +104,7 @@ pa_loop:
   orl  %eax , (%r13)
   test %eax , %eax 
   jnz  pa_iter  
-  # flag /= 0 => next token 
+  # flag != 0 => next token 
 
 
   movq 8(%r12,%rbp,8) , %rdi 
@@ -169,9 +169,8 @@ teardown:
 # @param flags - %edi 
 # @return void 
 header: 
-  andl $LETT , %edi 
-  cmpl $LETT , %edi 
-  jne 2f 
+  testl $LETT  , %edi 
+  jz 2f 
 1: 
   leaq pad_l(%rip) , %rsi 
   leaq ctr_l(%rip) , %rdx 
@@ -253,16 +252,15 @@ process:
   movl $0 , -24(%rbp)
   movl $0 , -28(%rbp)
 
-  movl %edi , %ebx # <- preserve tail in EBX
+  movl %edi , %ebx # <- preserve flags in EBX
 
   movl $5 ,  -8(%rbp)
   movl $5 , -12(%rbp)
 
   # (LETT & flags) == LETT => letter control scheme 
   movl $num_move, -32(%rbp) 
-  andl $LETT , %edi 
-  cmpl $LETT , %edi 
-  jne 1f 
+  testl $LETT , %ebx
+  jz 1f 
   movl $let_move , -32(%rbp)
 1: 
 
@@ -304,11 +302,9 @@ p_start:
 
   movl %eax , -4(%rbp)
 
-  # (TAIL & flags) == TAIL => 'render' tail (do not draw over c in last position)
-  movl %ebx  , %eax 
-  andl $TAIL , %eax 
-  cmpl $TAIL , %eax 
-  je 1f # <- if tail then skip 
+  # (TAIL & flags) != 0  => 'render' tail (do not draw over c in last position)
+  testl $TAIL , %ebx
+  jnz 1f # <- if tail then skip 
 
   movl -8(%rbp)  , %edi 
   movl -12(%rbp) , %esi 
@@ -401,8 +397,7 @@ main:
   leaq flags(%rip) , %rdx
   call process_args
   testq %rax , %rax 
-
-  jz 1f 
+  jz 1f
 
   movq %rax , %rdi 
   movq $60  , %rax 
